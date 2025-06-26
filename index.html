@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Partículas Creativas Interactivas</title>
+    <title>Partículas Creativas Multiverso</title>
 
     <!-- Enlaces para la PWA -->
     <link rel="manifest" href="manifest.json">
@@ -13,25 +13,13 @@
     <meta name="apple-mobile-web-app-title" content="Partículas">
     <link rel="apple-touch-icon" href="icons/icon-192x192.png">
 
-
     <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            background-color: #000005; /* Fondo oscuro consistente */
-            font-family: 'Inter', sans-serif;
-        }
-        canvas {
-            display: block;
-            cursor: pointer;
-        }
+        body { margin: 0; overflow: hidden; font-family: 'Inter', sans-serif; transition: background-color 0.5s ease; }
+        canvas { display: block; cursor: pointer; }
         .lil-gui {
-            --widget-color: #ebebeb;
-            --background-color: rgba(10, 10, 20, 0.8);
-            --title-background-color: #1a1a3d;
-            --text-color: #f0f0f0;
-            --hover-color: #333355;
-            --focus-color: #555588;
+            --widget-color: #ebebeb; --background-color: rgba(10, 10, 20, 0.8);
+            --title-background-color: #1a1a3d; --text-color: #f0f0f0;
+            --hover-color: #333355; --focus-color: #555588;
         }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -48,8 +36,8 @@
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/sw.js')
-                    .then(registration => { console.log('Service Worker registrado'); })
-                    .catch(error => { console.log('Error al registrar el Service Worker:', error); });
+                    .then(reg => console.log('Service Worker registrado.'))
+                    .catch(err => console.log('Error al registrar Service Worker:', err));
             });
         }
 
@@ -65,163 +53,262 @@
         });
 
         let particles = [];
-        const colorPalette = ['#00FFFF', '#FFFFFF', '#4D4DFF', '#FF00FF', '#AD5BFF'];
+        const mouse = { x: width / 2, y: height / 2, down: false };
 
-        // --- AJUSTES Y PANEL DE CONTROL CON NUEVA OPCIÓN DE FORMA ---
+        const palettes = {
+            'Neón': { bg: '#000005', colors: ['#00FFFF', '#FFFFFF', '#4D4DFF', '#FF00FF', '#AD5BFF'] },
+            'Fuego': { bg: '#100000', colors: ['#FF0000', '#FF4500', '#FFD700', '#FFFF00', '#FFFFFF'] },
+            'Océano': { bg: '#020E1A', colors: ['#00BFFF', '#20B2AA', '#00F5FF', '#48D1CC', '#F0FFFF'] },
+            'Bosque': { bg: '#011005', colors: ['#228B22', '#3CB371', '#8FBC8F', '#6B8E23', '#F5DEB3'] },
+            'Dulce': { bg: '#1C061A', colors: ['#FFC0CB', '#FFB6C1', '#ADD8E6', '#E6E6FA', '#F0FFF0'] },
+            'Inverso': { bg: '#FFFFFF', colors: ['#000000', '#363636', '#5C5C5C'] }
+        };
+        const glyphs = ['ア', 'カ', 'サ', 'タ', 'ナ', 'ハ', 'マ', 'ヤ', 'ラ', 'ワ'];
+
+        // --- AJUSTES Y PANEL DE CONTROL CON PARÁMETROS CONTEXTUALES ---
         const settings = {
-            shape: 'Círculo', // NUEVA OPCIÓN
-            particleCount: 120,
-            ambientParticles: 2,
-            baseSpeed: 2,
-            turnSpeed: 0.1,
+            scene: 'Nébula de Neón',
+            palette: 'Neón',
+            particleCount: 100,
             maxLife: 150,
             baseSize: 3,
             trailAlpha: 0.1,
             enableGlow: true,
             glowIntensity: 15,
+            glowQuality: 'Alta', // Opción restaurada
+            maxParticles: 500,
+
+            // Parámetros específicos de cada escena
+            turnSpeed: 0.1, 
+            connectionDistance: 100,
+            forceStrength: 1, 
+            friction: 0.95, 
+            gravity: 0.1, 
         };
+        
+        const gui = new lil.GUI({title: "Controles"});
+        gui.add(settings, 'scene', ['Nébula de Neón', 'Matriz Conectada', 'Enjambre de Trazadores', 'Tormenta de Glifos', 'Campo de Fuerza', 'Lluvia de Estrellas', 'Inverso']).name('Escena').onChange(updateGUIVisibility);
+        gui.add(settings, 'palette', Object.keys(palettes)).name('Paleta de Colores').onChange(updatePalette);
+        
+        const sceneFolders = {};
+        sceneFolders.shared = gui.addFolder('Comportamiento (Nébula/Enjambre/Inverso)');
+        sceneFolders.shared.add(settings, 'turnSpeed', 0, 0.5).name('Velocidad de Giro');
+        
+        sceneFolders.matrix = gui.addFolder('Comportamiento (Matriz)');
+        sceneFolders.matrix.add(settings, 'connectionDistance', 20, 300).name('Distancia Conexión');
+        
+        sceneFolders.force = gui.addFolder('Comportamiento (Campo de Fuerza)');
+        sceneFolders.force.add(settings, 'forceStrength', 0.1, 5).name('Fuerza de Atracción');
+        sceneFolders.force.add(settings, 'friction', 0.8, 0.99).name('Fricción');
 
-        const gui = new lil.GUI({title: "Controles de Partículas"});
-        gui.add(settings, 'shape', ['Círculo', 'Línea', 'Triángulo']).name('Forma'); // NUEVO CONTROL
-        
-        const burstFolder = gui.addFolder('Explosiones (Clic)');
-        burstFolder.add(settings, 'particleCount', 10, 500).name('Cantidad');
-        
-        const ambientFolder = gui.addFolder('Generación Ambiental');
-        ambientFolder.add(settings, 'ambientParticles', 0, 10).name('Partículas/seg');
-        
-        const physicsFolder = gui.addFolder('Física y Apariencia');
-        physicsFolder.add(settings, 'baseSpeed', 0.5, 10).name('Velocidad');
-        physicsFolder.add(settings, 'turnSpeed', 0.01, 0.5).name('Velocidad de Giro');
-        physicsFolder.add(settings, 'maxLife', 50, 500).name('Vida Útil');
-        physicsFolder.add(settings, 'baseSize', 1, 10).name('Tamaño');
+        sceneFolders.fall = gui.addFolder('Comportamiento (Lluvia/Glifos)');
+        sceneFolders.fall.add(settings, 'gravity', 0.02, 0.5).name('Gravedad');
 
+        const generalFolder = gui.addFolder('Ajustes Generales');
+        generalFolder.add(settings, 'particleCount', 10, 300, 1).name('Partículas (Clic)');
+        generalFolder.add(settings, 'maxLife', 50, 500).name('Vida Útil');
+        generalFolder.add(settings, 'baseSize', 1, 15).name('Tamaño');
+        
         const effectsFolder = gui.addFolder('Efectos Visuales');
-        effectsFolder.add(settings, 'trailAlpha', 0.01, 0.5).name('Largo del Rastro');
+        effectsFolder.add(settings, 'trailAlpha', 0.01, 1).name('Largo del Rastro');
         effectsFolder.add(settings, 'enableGlow').name('Activar Resplandor');
-        effectsFolder.add(settings, 'glowIntensity', 0, 50).name('Intensidad Resplandor');
-        
+        effectsFolder.add(settings, 'glowIntensity', 0, 50).name('Intensidad');
 
-        // --- CLASE PARTÍCULA MEJORADA PARA MÚLTIPLES FORMAS ---
+        const perfFolder = gui.addFolder('Rendimiento');
+        perfFolder.add(settings, 'maxParticles', 100, 1500, 1).name('Max Partículas');
+        perfFolder.add(settings, 'glowQuality', ['Alta', 'Baja']).name('Calidad Resplandor'); // Control restaurado
+
+        function updateGUIVisibility() {
+            Object.values(sceneFolders).forEach(folder => folder.hide());
+            particles = []; 
+            const scene = settings.scene;
+            if (scene === 'Nébula de Neón' || scene === 'Enjambre de Trazadores' || scene === 'Inverso') sceneFolders.shared.show();
+            else if (scene === 'Matriz Conectada') sceneFolders.matrix.show();
+            else if (scene === 'Campo de Fuerza') sceneFolders.force.show();
+            else if (scene === 'Lluvia de Estrellas' || scene === 'Tormenta de Glifos') sceneFolders.fall.show();
+        }
+
+        function updatePalette() { document.body.style.backgroundColor = palettes[settings.palette].bg; }
+        
+        updatePalette();
+        updateGUIVisibility();
+
+        // --- CLASE PARTÍCULA MULTIPROPÓSITO ---
         class Particle {
-            constructor(x, y) {
-                this.shape = settings.shape; // Guarda la forma actual al nacer
-                this.x = x;
-                this.y = y;
-                this.prevX = x; // Guardar posición anterior para las líneas
-                this.prevY = y;
+            constructor(x, y, scene) {
+                this.scene = scene;
+                this.x = x; this.y = y;
+                this.vx = 0; this.vy = 0;
+                
                 this.angle = Math.random() * Math.PI * 2;
-                this.speed = Math.random() * settings.baseSpeed + 0.5;
+                this.speed = Math.random() * 2 + 0.5;
                 this.turnSpeed = (Math.random() - 0.5) * settings.turnSpeed;
+                
                 this.life = 0;
                 this.maxLife = Math.random() * settings.maxLife + 50;
-                this.size = Math.random() * settings.baseSize + 1.5; // Tamaño mínimo un poco mayor
-                this.color = colorPalette[Math.floor(Math.random() * colorPalette.length)];
+                this.size = Math.random() * settings.baseSize + 1.5;
+                this.color = palettes[settings.palette].colors[Math.floor(Math.random() * palettes[settings.palette].colors.length)];
+                
+                if (this.scene === 'Tormenta de Glifos') this.char = glyphs[Math.floor(Math.random() * glyphs.length)];
+                if (this.scene === 'Enjambre de Trazadores') this.tail = [];
             }
 
             update() {
-                // Guardar la posición actual antes de mover
-                this.prevX = this.x;
-                this.prevY = this.y;
-
-                // Mover la partícula
-                this.angle += this.turnSpeed;
-                this.x += Math.cos(this.angle) * this.speed;
-                this.y += Math.sin(this.angle) * this.speed;
-                this.speed *= 0.99;
                 this.life++;
 
-                // Lógica de rebote en los bordes
-                if (this.x < 0 || this.x > width || this.y < 0 || this.y > height) {
-                    this.life = this.maxLife; // Desaparece al tocar el borde
+                // Lógica de movimiento por escena
+                switch(this.scene) {
+                    case 'Lluvia de Estrellas':
+                    case 'Tormenta de Glifos':
+                        this.vy += settings.gravity;
+                        this.x += this.vx; this.y += this.vy;
+                        if (this.y > height) this.life = this.maxLife;
+                        break;
+                    
+                    case 'Campo de Fuerza':
+                        const dx = mouse.x - this.x; const dy = mouse.y - this.y;
+                        const dist = Math.sqrt(dx*dx + dy*dy);
+                        if (dist > 1) {
+                            const force = Math.min(10, 1000 / (dist * dist));
+                            this.vx += (dx / dist) * force * (settings.forceStrength / 10);
+                            this.vy += (dy / dist) * force * (settings.forceStrength / 10);
+                        }
+                        this.x += this.vx; this.y += this.vy;
+                        this.vx *= settings.friction; this.vy *= settings.friction;
+                        break;
+                    
+                    case 'Enjambre de Trazadores': // Lógica de la cola restaurada
+                        this.tail.push({x: this.x, y: this.y, size: this.size});
+                        if (this.tail.length > 20) this.tail.shift();
+                        // intencionadamente continua al default para el movimiento de la cabeza
+                    default: // Nébula, Matriz, Enjambre, Inverso
+                        this.angle += this.turnSpeed;
+                        this.x += Math.cos(this.angle) * this.speed;
+                        this.y += Math.sin(this.angle) * this.speed;
+                        this.speed *= 0.99;
+                        if (this.x < 0 || this.x > width || this.y < 0 || this.y > height) this.life = this.maxLife;
+                        break;
                 }
             }
 
             draw(context) {
-                // Configurar resplandor
-                if (settings.enableGlow) {
+                const isHighGlow = settings.glowQuality === 'Alta' && settings.enableGlow && settings.palette !== 'Inverso';
+                if (isHighGlow) {
                     context.shadowBlur = settings.glowIntensity;
                     context.shadowColor = this.color;
-                } else {
-                    context.shadowBlur = 0;
                 }
-
-                context.strokeStyle = this.color;
-                context.fillStyle = this.color;
-                context.lineWidth = this.size;
                 
+                context.fillStyle = this.color;
+                context.strokeStyle = this.color;
                 context.beginPath();
 
-                // Dibujar según la forma de la partícula
-                switch (this.shape) {
-                    case 'Línea':
-                        context.moveTo(this.prevX, this.prevY);
-                        context.lineTo(this.x, this.y);
+                switch(this.scene) {
+                    case 'Enjambre de Trazadores': // Lógica de dibujo restaurada
+                        context.moveTo(this.x, this.y);
+                        if(this.tail && this.tail.length > 0) {
+                            this.tail.forEach((p, i) => {
+                                context.globalAlpha = (i / this.tail.length) * 0.5;
+                                context.lineTo(p.x, p.y);
+                            });
+                        }
+                        context.lineWidth = this.size * 0.5;
                         context.stroke();
+                        context.globalAlpha = 1;
                         break;
                     
-                    case 'Triángulo':
-                        // Calcular los 3 vértices de un triángulo isósceles y rotarlos
-                        const p1x = this.x + Math.cos(this.angle) * this.size * 2;
-                        const p1y = this.y + Math.sin(this.angle) * this.size * 2;
-                        const p2x = this.x + Math.cos(this.angle + Math.PI * 0.8) * this.size;
-                        const p2y = this.y + Math.sin(this.angle + Math.PI * 0.8) * this.size;
-                        const p3x = this.x + Math.cos(this.angle - Math.PI * 0.8) * this.size;
-                        const p3y = this.y + Math.sin(this.angle - Math.PI * 0.8) * this.size;
-                        
-                        context.moveTo(p1x, p1y);
-                        context.lineTo(p2x, p2y);
-                        context.lineTo(p3x, p3y);
-                        context.closePath();
-                        context.fill();
+                    case 'Tormenta de Glifos':
+                        context.font = `${this.size * 10}px sans-serif`;
+                        context.textAlign = 'center';
+                        context.fillText(this.char, this.x, this.y);
                         break;
-
-                    case 'Círculo':
-                    default:
+                    
+                    default: // Círculos para el resto, funciona para Matriz
                         context.arc(this.x, this.y, this.size, 0, Math.PI * 2);
                         context.fill();
                         break;
                 }
+                context.shadowBlur = 0; // reset
             }
         }
 
-        // --- FUNCIONES Y BUCLE DE ANIMACIÓN (SIN GRANDES CAMBIOS) ---
-        function createBurst(x, y) {
-            for (let i = 0; i < settings.particleCount; i++) {
-                particles.push(new Particle(x, y));
-            }
+        function handleInteraction(x, y) {
+             if (particles.length >= settings.maxParticles) return;
+             const count = Math.min(settings.particleCount, settings.maxParticles - particles.length);
+             for (let i = 0; i < count; i++) particles.push(new Particle(x, y, settings.scene));
         }
-
-        canvas.addEventListener('mousedown', (e) => { createBurst(e.clientX, e.clientY); });
-        canvas.addEventListener('mousemove', (e) => {
-            if (e.buttons === 1) { for (let i = 0; i < 3; i++) { particles.push(new Particle(e.clientX, e.clientY)); }}
-        });
-        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); if (e.touches.length > 0) { createBurst(e.touches[0].clientX, e.touches[0].clientY); }}, { passive: false });
-        canvas.addEventListener('touchmove', (e) => { e.preventDefault();
-            if (e.touches.length > 0) { for (let i = 0; i < 3; i++) { particles.push(new Particle(e.touches[0].clientX, e.touches[0].clientY)); }}
-        }, { passive: false });
         
+        canvas.addEventListener('mousedown', e => { mouse.down = true; handleInteraction(e.clientX, e.clientY); });
+        canvas.addEventListener('mouseup', () => mouse.down = false);
+        canvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+        canvas.addEventListener('touchstart', e => { e.preventDefault(); mouse.down = true; handleInteraction(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+        canvas.addEventListener('touchend', () => mouse.down = false);
+        canvas.addEventListener('touchmove', e => {e.preventDefault(); mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY; }, {passive: false});
+
         function animate() {
+            // Lógica de dibujado del fondo (CORREGIDA)
             ctx.globalCompositeOperation = 'source-over';
-            ctx.fillStyle = `rgba(0, 0, 5, ${settings.trailAlpha})`;
+            ctx.fillStyle = palettes[settings.palette].bg;
+            ctx.globalAlpha = settings.trailAlpha;
             ctx.fillRect(0, 0, width, height);
+            ctx.globalAlpha = 1;
             
-            if (settings.enableGlow) { ctx.globalCompositeOperation = 'lighter'; }
-            
-            if (Math.random() < settings.ambientParticles / 60) {
-                particles.push(new Particle(Math.random() * width, Math.random() * height));
+            // Lógica de resplandor (CORREGIDA)
+            if (settings.enableGlow && settings.palette !== 'Inverso' && settings.glowQuality === 'Alta') {
+                ctx.globalCompositeOperation = 'lighter';
             }
             
+            // Generación ambiental
+            if (particles.length < settings.maxParticles && Math.random() < 0.5) {
+                 const scene = settings.scene;
+                 if (scene === 'Lluvia de Estrellas' || scene === 'Tormenta de Glifos') particles.push(new Particle(Math.random() * width, -10, scene));
+                 else if (scene !== 'Campo de Fuerza') particles.push(new Particle(Math.random() * width, Math.random() * height, scene));
+            }
+            
+            if (settings.scene === 'Matriz Conectada') {
+                const connectedParticles = particles.slice(0, 150); // Optimización: solo conectar un subconjunto
+                ctx.save();
+                ctx.lineWidth = 0.5;
+                for(let i=0; i < connectedParticles.length; i++) {
+                    for(let j=i; j < connectedParticles.length; j++) {
+                        const p1 = connectedParticles[i];
+                        const p2 = connectedParticles[j];
+                        const dx = p1.x - p2.x; const dy = p1.y - p2.y;
+                        const dist = Math.sqrt(dx*dx + dy*dy);
+                        if(dist < settings.connectionDistance) {
+                            ctx.beginPath();
+                            const opacity = 1 - dist/settings.connectionDistance;
+                            ctx.strokeStyle = palettes[settings.palette].colors[1] || '#FFFFFF'; // Usa un color base de la paleta
+                            ctx.globalAlpha = opacity * 0.5;
+                            ctx.moveTo(p1.x, p1.y);
+                            ctx.lineTo(p2.x, p2.y);
+                            ctx.stroke();
+                        }
+                    }
+                }
+                ctx.restore();
+            }
+
             for (let i = particles.length - 1; i >= 0; i--) {
                 const p = particles[i];
                 p.update();
                 p.draw(ctx);
-                if (p.life >= p.maxLife || p.speed < 0.1) {
-                    particles.splice(i, 1);
+                
+                // Resplandor de baja calidad (se dibuja después de la partícula)
+                if(settings.enableGlow && settings.glowQuality === 'Baja' && settings.palette !== 'Inverso') {
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'lighter';
+                    ctx.fillStyle = p.color;
+                    ctx.globalAlpha = 0.1;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size * (settings.glowIntensity / 5), 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
                 }
+
+                if (p.life >= p.maxLife) particles.splice(i, 1);
             }
             
-            ctx.shadowBlur = 0;
+            ctx.globalCompositeOperation = 'source-over'; // Reset final
             requestAnimationFrame(animate);
         }
         animate();
