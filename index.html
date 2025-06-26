@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Partículas Creativas Interactivas</title>
+
+    <!-- Enlaces para la PWA -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#000005">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Partículas">
+    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+
+
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000005; /* Fondo oscuro consistente */
+            font-family: 'Inter', sans-serif;
+        }
+        canvas {
+            display: block;
+            cursor: pointer;
+        }
+        .lil-gui {
+            --widget-color: #ebebeb;
+            --background-color: rgba(10, 10, 20, 0.8);
+            --title-background-color: #1a1a3d;
+            --text-color: #f0f0f0;
+            --hover-color: #333355;
+            --focus-color: #555588;
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <canvas id="creative-canvas"></canvas>
+
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/lil-gui@0.19"></script>
+    
+    <script>
+        // --- REGISTRO DEL SERVICE WORKER (PARA PWA) ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(registration => { console.log('Service Worker registrado'); })
+                    .catch(error => { console.log('Error al registrar el Service Worker:', error); });
+            });
+        }
+
+        // --- CÓDIGO DE LA SIMULACIÓN ---
+        const canvas = document.getElementById('creative-canvas');
+        const ctx = canvas.getContext('2d');
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        });
+
+        let particles = [];
+        const colorPalette = ['#00FFFF', '#FFFFFF', '#4D4DFF', '#FF00FF', '#AD5BFF'];
+
+        // --- AJUSTES Y PANEL DE CONTROL CON NUEVA OPCIÓN DE FORMA ---
+        const settings = {
+            shape: 'Círculo', // NUEVA OPCIÓN
+            particleCount: 120,
+            ambientParticles: 2,
+            baseSpeed: 2,
+            turnSpeed: 0.1,
+            maxLife: 150,
+            baseSize: 3,
+            trailAlpha: 0.1,
+            enableGlow: true,
+            glowIntensity: 15,
+        };
+
+        const gui = new lil.GUI({title: "Controles de Partículas"});
+        gui.add(settings, 'shape', ['Círculo', 'Línea', 'Triángulo']).name('Forma'); // NUEVO CONTROL
+        
+        const burstFolder = gui.addFolder('Explosiones (Clic)');
+        burstFolder.add(settings, 'particleCount', 10, 500).name('Cantidad');
+        
+        const ambientFolder = gui.addFolder('Generación Ambiental');
+        ambientFolder.add(settings, 'ambientParticles', 0, 10).name('Partículas/seg');
+        
+        const physicsFolder = gui.addFolder('Física y Apariencia');
+        physicsFolder.add(settings, 'baseSpeed', 0.5, 10).name('Velocidad');
+        physicsFolder.add(settings, 'turnSpeed', 0.01, 0.5).name('Velocidad de Giro');
+        physicsFolder.add(settings, 'maxLife', 50, 500).name('Vida Útil');
+        physicsFolder.add(settings, 'baseSize', 1, 10).name('Tamaño');
+
+        const effectsFolder = gui.addFolder('Efectos Visuales');
+        effectsFolder.add(settings, 'trailAlpha', 0.01, 0.5).name('Largo del Rastro');
+        effectsFolder.add(settings, 'enableGlow').name('Activar Resplandor');
+        effectsFolder.add(settings, 'glowIntensity', 0, 50).name('Intensidad Resplandor');
+        
+
+        // --- CLASE PARTÍCULA MEJORADA PARA MÚLTIPLES FORMAS ---
+        class Particle {
+            constructor(x, y) {
+                this.shape = settings.shape; // Guarda la forma actual al nacer
+                this.x = x;
+                this.y = y;
+                this.prevX = x; // Guardar posición anterior para las líneas
+                this.prevY = y;
+                this.angle = Math.random() * Math.PI * 2;
+                this.speed = Math.random() * settings.baseSpeed + 0.5;
+                this.turnSpeed = (Math.random() - 0.5) * settings.turnSpeed;
+                this.life = 0;
+                this.maxLife = Math.random() * settings.maxLife + 50;
+                this.size = Math.random() * settings.baseSize + 1.5; // Tamaño mínimo un poco mayor
+                this.color = colorPalette[Math.floor(Math.random() * colorPalette.length)];
+            }
+
+            update() {
+                // Guardar la posición actual antes de mover
+                this.prevX = this.x;
+                this.prevY = this.y;
+
+                // Mover la partícula
+                this.angle += this.turnSpeed;
+                this.x += Math.cos(this.angle) * this.speed;
+                this.y += Math.sin(this.angle) * this.speed;
+                this.speed *= 0.99;
+                this.life++;
+
+                // Lógica de rebote en los bordes
+                if (this.x < 0 || this.x > width || this.y < 0 || this.y > height) {
+                    this.life = this.maxLife; // Desaparece al tocar el borde
+                }
+            }
+
+            draw(context) {
+                // Configurar resplandor
+                if (settings.enableGlow) {
+                    context.shadowBlur = settings.glowIntensity;
+                    context.shadowColor = this.color;
+                } else {
+                    context.shadowBlur = 0;
+                }
+
+                context.strokeStyle = this.color;
+                context.fillStyle = this.color;
+                context.lineWidth = this.size;
+                
+                context.beginPath();
+
+                // Dibujar según la forma de la partícula
+                switch (this.shape) {
+                    case 'Línea':
+                        context.moveTo(this.prevX, this.prevY);
+                        context.lineTo(this.x, this.y);
+                        context.stroke();
+                        break;
+                    
+                    case 'Triángulo':
+                        // Calcular los 3 vértices de un triángulo isósceles y rotarlos
+                        const p1x = this.x + Math.cos(this.angle) * this.size * 2;
+                        const p1y = this.y + Math.sin(this.angle) * this.size * 2;
+                        const p2x = this.x + Math.cos(this.angle + Math.PI * 0.8) * this.size;
+                        const p2y = this.y + Math.sin(this.angle + Math.PI * 0.8) * this.size;
+                        const p3x = this.x + Math.cos(this.angle - Math.PI * 0.8) * this.size;
+                        const p3y = this.y + Math.sin(this.angle - Math.PI * 0.8) * this.size;
+                        
+                        context.moveTo(p1x, p1y);
+                        context.lineTo(p2x, p2y);
+                        context.lineTo(p3x, p3y);
+                        context.closePath();
+                        context.fill();
+                        break;
+
+                    case 'Círculo':
+                    default:
+                        context.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                        context.fill();
+                        break;
+                }
+            }
+        }
+
+        // --- FUNCIONES Y BUCLE DE ANIMACIÓN (SIN GRANDES CAMBIOS) ---
+        function createBurst(x, y) {
+            for (let i = 0; i < settings.particleCount; i++) {
+                particles.push(new Particle(x, y));
+            }
+        }
+
+        canvas.addEventListener('mousedown', (e) => { createBurst(e.clientX, e.clientY); });
+        canvas.addEventListener('mousemove', (e) => {
+            if (e.buttons === 1) { for (let i = 0; i < 3; i++) { particles.push(new Particle(e.clientX, e.clientY)); }}
+        });
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); if (e.touches.length > 0) { createBurst(e.touches[0].clientX, e.touches[0].clientY); }}, { passive: false });
+        canvas.addEventListener('touchmove', (e) => { e.preventDefault();
+            if (e.touches.length > 0) { for (let i = 0; i < 3; i++) { particles.push(new Particle(e.touches[0].clientX, e.touches[0].clientY)); }}
+        }, { passive: false });
+        
+        function animate() {
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.fillStyle = `rgba(0, 0, 5, ${settings.trailAlpha})`;
+            ctx.fillRect(0, 0, width, height);
+            
+            if (settings.enableGlow) { ctx.globalCompositeOperation = 'lighter'; }
+            
+            if (Math.random() < settings.ambientParticles / 60) {
+                particles.push(new Particle(Math.random() * width, Math.random() * height));
+            }
+            
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.update();
+                p.draw(ctx);
+                if (p.life >= p.maxLife || p.speed < 0.1) {
+                    particles.splice(i, 1);
+                }
+            }
+            
+            ctx.shadowBlur = 0;
+            requestAnimationFrame(animate);
+        }
+        animate();
+    </script>
+</body>
+</html>
